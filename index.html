@@ -383,6 +383,9 @@ function fetchFromCloud(method, bodyData) {
         };
 
         document.addEventListener('DOMContentLoaded', () => {
+
+            // 🌟 追加：ページが開いた瞬間に自動でデータを読み込む
+            loadCloudData();
             
             document.getElementById('loadDataBtn').addEventListener('click', loadCloudData);
 
