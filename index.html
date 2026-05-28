@@ -264,60 +264,54 @@
         window.editFiguresMap = {};
         let currentSelectedFolder = 'all';
 
-       // 🌟 通信処理：GASを完全廃止し、ブラウザにすべて保存するローカルルート
-        function fetchFromCloud(method, bodyData) {
-            const indicator = document.getElementById('cloudStatus');
-            if(indicator) indicator.classList.add('syncing');
+      // 🌟 通信処理：GASを完全廃止し、ブラウザにすべて保存するローカルルート
+function fetchFromCloud(method, bodyData) {
+    const indicator = document.getElementById('cloudStatus');
+    if(indicator) indicator.classList.add('syncing');
 
-            return new Promise((resolve, reject) => {
-                // ① 現在の保存データを読み込む
-                let currentData = { folders: [], papers: [] };
-                const rawData = localStorage.getItem('SRK_APP_DATA');
-                if (rawData) {
-                    try { currentData = JSON.parse(rawData); } catch (e) {}
-                }
-
-                // 読み込み（GET）の場合はここで終了
-                if (method === 'GET') {
-                    if (indicator) indicator.classList.remove('syncing');
-                    resolve(currentData);
-                    return;
-                }
-
-                // ② 保存・削除（POST）の内部処理
-                let papers = currentData.papers || [];
-                let folders = currentData.folders || [];
-
-                if (bodyData.action === 'syncAll') {
-                    folders = bodyData.folders || folders;
-                    papers = bodyData.papers || papers;
-                } else if (bodyData.action === 'savePaper') {
-                    const newP = bodyData.paper;
-                    const idx = papers.findIndex(p => p.id === newP.id);
-                    if (idx >= 0) {
-                        papers[idx] = newP; // 上書き更新
-                    } else {
-                        papers.push(newP); // 新規追加
-                    }
-                } else if (bodyData.action === 'deletePaper') {
-                    const delId = bodyData.id;
-                    papers = papers.filter(p => p.id !== delId); // 削除
-                }
-
-                // ③ 更新したデータをブラウザに保存する
-                const newData = { folders: folders, papers: papers };
-                try {
-                    localStorage.setItem('SRK_APP_DATA', JSON.stringify(newData));
-                    if (indicator) indicator.classList.remove('syncing');
-                    resolve({ status: "success", data: newData });
-                } catch (e) {
-                    // ※ブラウザの保存容量(約5MB)を超えた場合のエラー回避
-                    if (indicator) indicator.classList.remove('syncing');
-                    alert("⚠️ ブラウザの保存容量の上限に達しました。不要な画像を減らしてください。");
-                    reject(e);
-                }
-            });
+    return new Promise((resolve, reject) => {
+        // ① 現在の保存データを読み込む
+        let currentData = { folders: [], papers: [] };
+        const rawData = localStorage.getItem('SRK_APP_DATA');
+        if (rawData) {
+            try { currentData = JSON.parse(rawData); } catch (e) {}
         }
+
+        if (method === 'GET') {
+            if (indicator) indicator.classList.remove('syncing');
+            resolve(currentData);
+            return;
+        }
+
+        // ② 保存・削除（POST）の内部処理
+        let papers = currentData.papers || [];
+        let folders = currentData.folders || [];
+
+        if (bodyData.action === 'syncAll') {
+            folders = bodyData.folders || folders;
+            papers = bodyData.papers || papers;
+        } else if (bodyData.action === 'savePaper') {
+            const newP = bodyData.paper;
+            const idx = papers.findIndex(p => p.id === newP.id);
+            if (idx >= 0) { papers[idx] = newP; } else { papers.push(newP); }
+        } else if (bodyData.action === 'deletePaper') {
+            const delId = bodyData.id;
+            papers = papers.filter(p => p.id !== delId);
+        }
+
+        // ③ 更新したデータをブラウザに保存する
+        const newData = { folders: folders, papers: papers };
+        try {
+            localStorage.setItem('SRK_APP_DATA', JSON.stringify(newData));
+            if (indicator) indicator.classList.remove('syncing');
+            resolve({ status: "success", data: newData });
+        } catch (e) {
+            if (indicator) indicator.classList.remove('syncing');
+            alert("⚠️ ブラウザの保存容量の上限に達しました。");
+            reject(e);
+        }
+    });
+}
         async function loadCloudData() {
             document.getElementById('hitCount').textContent = "クラウドと同期中...";
             const data = await fetchFromCloud('GET');
