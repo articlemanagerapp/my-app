@@ -384,11 +384,6 @@ function fetchFromCloud(method, bodyData) {
 
         document.addEventListener('DOMContentLoaded', () => {
 
-            // 🌟 追加：ページが開いた瞬間に自動でデータを読み込む
-            loadCloudData();
-            
-            document.getElementById('loadDataBtn').addEventListener('click', loadCloudData);
-
             const regModal = document.getElementById('regModal');
             const folderModal = document.getElementById('folderModal');
             
@@ -792,6 +787,24 @@ function fetchFromCloud(method, bodyData) {
                     document.getElementById('summary').value = data.candidates[0].content.parts[0].text; document.getElementById('pdfStatus').textContent = "✨ 完了";
                 } catch(e) { document.getElementById('pdfStatus').textContent = "❌ " + e.message; }
             }
+            // 🌟 画面パーツの準備が完全に終わった後にデータを読み込む
+            async function safeLoadData() {
+                const hitCount = document.getElementById('hitCount');
+                if(hitCount) hitCount.textContent = "データを読み込み中...";
+                const data = await fetchFromCloud('GET');
+                if(data) {
+                    globalPapers = data.papers || [];
+                    globalFolders = data.folders || [];
+                    updateFolderUI();
+                    updateFilterOptions();
+                    executeSearch();
+                }
+            }
+            
+            safeLoadData(); // 起動時に自動実行
+            
+            const loadBtn = document.getElementById('loadDataBtn');
+            if(loadBtn) loadBtn.onclick = safeLoadData;
         });
     </script>
 </body>
