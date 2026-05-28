@@ -1,0 +1,799 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>共有用論文管理アプリケーション</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+    <script>
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+    </script>
+    <style>
+        body { font-family: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif; margin: 0; padding: 0; height: 100vh; display: flex; flex-direction: column; overflow: hidden; color: #333; }
+        .ribbon { background-color: #2c3e50; color: white; padding: 15px 20px; flex-shrink: 0; z-index: 10; position: relative; }
+        .ribbon-header { display: flex; justify-content: space-between; align-items: center; max-width: 900px; margin: 0 auto 10px auto; }
+        .ribbon h1 { margin: 0; font-size: 1.3em; }
+        .ribbon-actions { display: flex; gap: 10px; }
+        .btn-new-register { background-color: #2ecc71; color: white; border: none; padding: 8px 16px; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 0.95em; box-shadow: 0 2px 4px rgba(0,0,0,0.2); transition: background 0.2s; }
+        .btn-new-register:hover { background-color: #27ae60; }
+        .btn-folder { background-color: #3498db; }
+        .btn-folder:hover { background-color: #2980b9; }
+        .btn-sync { background-color: #f39c12; }
+        .btn-sync:hover { background-color: #d68910; }
+        
+        #cloudStatus { position: absolute; top: 0; left: 0; right: 0; height: 3px; background: #e74c3c; width: 0%; transition: width 0.3s; }
+        #cloudStatus.syncing { width: 100%; background: #3498db; animation: blink 1.5s infinite; }
+        @keyframes blink { 0% {opacity:0.4;} 50% {opacity:1;} 100% {opacity:0.4;} }
+
+        .search-container { display: flex; flex-direction: column; gap: 12px; max-width: 900px; margin: 0 auto; }
+        .search-row input[type="text"] { width: 100%; padding: 10px; font-size: 1em; border-radius: 20px; border: none; box-sizing: border-box; }
+        .filter-row { display: flex; gap: 15px; flex-wrap: wrap; justify-content: center; width: 100%; }
+        .filter-group { display: flex; align-items: center; gap: 6px; font-size: 0.85em; }
+        .filter-group label { font-weight: bold; color: #ecf0f1; }
+        
+        .multi-select { position: relative; display: inline-block; width: 150px; background: #fff; color: #333; border-radius: 4px; cursor: pointer; user-select: none; font-size: 0.95em;}
+        .ms-header { padding: 6px 10px; border: 1px solid #bdc3c7; border-radius: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; justify-content: space-between; align-items: center;}
+        .ms-header::after { content: '▼'; font-size: 0.7em; color: #7f8c8d; margin-left: 5px; }
+        .ms-options { display: none; position: absolute; top: 100%; left: 0; right: 0; background: #fff; border: 1px solid #bdc3c7; border-top: none; max-height: 250px; overflow-y: auto; z-index: 100; box-shadow: 0 4px 6px rgba(0,0,0,0.1); border-radius: 0 0 4px 4px; }
+        .ms-options.show { display: block; }
+        .ms-options label { display: block; padding: 6px 10px; cursor: pointer; color: #333; font-weight: normal; }
+        .ms-options label:hover { background-color: #f1f2f6; }
+        .ms-options input[type="checkbox"] { margin-right: 6px; vertical-align: middle; }
+
+        .main-wrapper { flex-grow: 1; display: flex; overflow: hidden; background-color: #f4f7f6; }
+        
+        .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); align-items: center; justify-content: center; }
+        .modal.show { display: flex; }
+        .modal-content { background-color: #fff; width: 90%; max-width: 1000px; max-height: 90vh; border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.2); display: flex; flex-direction: column; overflow: hidden; }
+        .modal-content.small { max-width: 500px; }
+        .modal-header { padding: 15px 20px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; background-color: #f9f9f9; }
+        .modal-header h2 { margin: 0; font-size: 1.2em; color: #2c3e50; }
+        .modal-close { background: none; border: none; font-size: 1.5em; cursor: pointer; color: #7f8c8d; line-height: 1; padding: 0; }
+        .modal-close:hover { color: #e74c3c; }
+        .modal-body { padding: 20px; overflow-y: auto; flex-grow: 1; }
+
+        .form-group { margin-bottom: 15px; }
+        .form-group label { display: block; font-weight: bold; margin-bottom: 5px; font-size: 0.85em; color: #555; }
+        .form-group input, .form-group textarea, .form-group select { width: 100%; padding: 8px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; }
+        .form-group textarea { resize: vertical; height: 60px; font-family: inherit; }
+        #keywords { height: 70px; }
+        
+        .ai-setting { background: #e8f4f8; padding: 10px; border-radius: 6px; border-left: 4px solid #3498db; margin-bottom: 15px; }
+        .drop-zone { border: 2px dashed #3498db; background-color: #f9fbfd; padding: 20px; text-align: center; border-radius: 6px; cursor: pointer; color: #3498db; font-weight: bold; transition: background 0.2s; }
+        .drop-zone.dragover { background-color: #e1f0fa; }
+        #pdfStatus { font-size: 0.85em; color: #e67e22; margin-top: 5px; font-weight: bold; }
+        .submit-btn { background-color: #2ecc71; color: white; border: none; padding: 10px; cursor: pointer; border-radius: 4px; font-size: 1em; width: 100%; font-weight: bold; }
+        .submit-btn:hover { background-color: #27ae60; }
+        .folder-badge { background-color: #fff; padding: 5px 10px; border-radius: 4px; font-size: 0.9em; display: inline-flex; align-items: center; gap: 8px; border: 1px solid #ced4da; margin: 4px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+        .folder-badge-del { color: #e74c3c; cursor: pointer; font-weight: bold; font-size: 1.1em; }
+        .folder-badge-del:hover { color: #c0392b; }
+
+        .figure-upload-zone { border: 1.5px dashed #bdc3c7; background-color: #fafafa; padding: 15px; text-align: center; border-radius: 6px; cursor: pointer; color: #7f8c8d; font-size: 0.85em; transition: background 0.2s; }
+        .figure-upload-zone:hover, .figure-upload-zone:focus { background-color: #f0f3f4; outline: none; border-color: #3498db; }
+        .figure-list { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
+        .figure-item { display: flex; gap: 10px; background: #fff; padding: 8px; border: 1px solid #eee; border-radius: 4px; align-items: flex-start; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+        .figure-item img { max-width: 100px; max-height: 80px; object-fit: contain; border: 1px solid #ddd; border-radius: 3px; background: #f9f9f9; }
+        .figure-item .fig-inputs { flex-grow: 1; display: flex; flex-direction: column; gap: 5px; }
+        .figure-item input[type="text"] { width: 100%; padding: 4px 6px; font-size: 0.85em; border: 1px solid #ccc; border-radius: 3px; box-sizing: border-box; }
+        
+        .view-figures { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 15px; margin-top: 15px; margin-bottom: 15px; }
+        .view-figure-card { background: #fff; border: 1px solid #e1e8ed; border-radius: 6px; padding: 10px; text-align: center; }
+        .view-figure-card img { max-width: 100%; max-height: 200px; border-radius: 4px; object-fit: contain; }
+        .view-figure-card p { font-size: 0.85em; color: #555; margin: 8px 0 0 0; line-height: 1.4; text-align: left; }
+
+        .custom-field-item { background: #fafafa; border: 1px dashed #bdc3c7; padding: 10px; border-radius: 4px; margin-bottom: 8px; }
+        .custom-field-item .cf-header { display: flex; gap: 8px; margin-bottom: 6px; }
+        .custom-field-item input.cf-key { flex-grow: 1; padding: 6px; border: 1px solid #ccc; border-radius: 3px; font-size: 0.9em; box-sizing: border-box; }
+        .custom-field-item textarea.cf-val { width: 100%; box-sizing: border-box; padding: 6px; border: 1px solid #ccc; border-radius: 3px; resize: vertical; min-height: 50px; font-size: 0.9em; font-family: inherit; }
+
+        .content { flex-grow: 1; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; max-width: 1200px; margin: 0 auto; width: 100%; }
+        .content-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+        .content-header h2 { margin: 0; font-size: 1.2em; color: #2c3e50; }
+        .address-bar { display: flex; align-items: center; border: 1px solid #d9d9d9; padding: 6px 12px; background: #fff; margin-bottom: 15px; border-radius: 3px; font-size: 0.9em; box-shadow: inset 0 1px 2px rgba(0,0,0,0.02); }
+        .address-bar span { cursor: pointer; color: #333; display: flex; align-items: center; }
+        .address-bar span:hover { color: #3498db; text-decoration: underline; }
+        .address-bar .separator { margin: 0 8px; color: #999; cursor: default; }
+
+        .explorer-table { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid #d9d9d9; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+        .explorer-table thead { background-color: #f9f9f9; }
+        .explorer-table th { padding: 8px 12px; border-right: 1px solid #ebebeb; border-bottom: 1px solid #d9d9d9; font-weight: normal; font-size: 0.85em; color: #555; text-align: left; }
+        .explorer-table th:last-child { border-right: none; }
+        .explorer-table td { padding: 8px 12px; border-bottom: 1px solid #f0f0f0; font-size: 0.9em; max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #222; }
+        .explorer-row { transition: background-color 0.1s; }
+        .explorer-row:hover:not(.detail-row) { background-color: #e5f3ff; }
+        .explorer-row.file-row { cursor: pointer; }
+        .explorer-row.folder-row { cursor: pointer; font-weight: bold; }
+        .icon { font-size: 1.1em; margin-right: 6px; vertical-align: middle; }
+
+        .detail-row { display: none; }
+        .detail-row.open { display: table-row; }
+        .detail-content { background: #fafafa; padding: 15px 20px; border-left: 4px solid #3498db; margin: 0; white-space: normal; color: #444; font-size: 0.9em; box-shadow: inset 0 2px 4px rgba(0,0,0,0.02); position: relative; }
+        .detail-content p { margin: 8px 0; line-height: 1.6; }
+        .keyword-tag { background-color: #e1f0fa; color: #2980b9; padding: 2px 6px; border-radius: 4px; font-size: 0.9em; margin-right: 4px; display: inline-block; border: 1px solid #b3d7f0; }
+
+        .action-btn-group { display: flex; gap: 5px; justify-content: center; }
+        .btn-small { background-color: transparent; border: 1px solid #ccc; padding: 4px 8px; font-size: 0.85em; cursor: pointer; border-radius: 3px; transition: all 0.2s; }
+        .btn-small.delete-btn { color: #e74c3c; border-color: #e74c3c; }
+        .btn-small.delete-btn:hover { background-color: #e74c3c; color: white; }
+        .btn-small.edit-btn { color: #2980b9; border-color: #2980b9; }
+        .btn-small.edit-btn:hover { background-color: #2980b9; color: white; }
+        
+        .inline-edit-form { display: none; background: #fff; border: 1px solid #ddd; padding: 15px; border-radius: 6px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
+        .edit-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
+        .edit-grid .full-width { grid-column: span 2; }
+        .edit-grid label { font-size: 0.85em; font-weight: bold; color: #555; margin-bottom: 4px; display: block; }
+        .edit-grid input, .edit-grid textarea, .edit-grid select { width: 100%; padding: 6px; border: 1px solid #ccc; border-radius: 4px; font-family: inherit; font-size: 0.9em; box-sizing: border-box; }
+        .edit-grid textarea { resize: vertical; min-height: 50px; }
+        .edit-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 10px; }
+        .btn-update { background: #2ecc71; color: white; border: none; padding: 6px 15px; border-radius: 3px; cursor: pointer; font-weight: bold; }
+        .btn-cancel { background: #95a5a6; color: white; border: none; padding: 6px 15px; border-radius: 3px; cursor: pointer; font-weight: bold; }
+
+        .modal-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+        .modal-form-grid .full-width { grid-column: span 2; }
+    </style>
+</head>
+<body>
+
+    <div class="ribbon">
+        <div id="cloudStatus"></div>
+        <div class="ribbon-header">
+            <h1>📚 論文管理アプリケーション (クラウド共有版)</h1>
+            <div class="ribbon-actions">
+                <button id="loadDataBtn" class="btn-new-register btn-sync">🔄 読み込み</button>
+                <button id="openFolderModalBtn" class="btn-new-register btn-folder">＋ フォルダ作成</button>
+                <button id="openModalBtn" class="btn-new-register">＋ 新規登録</button>
+            </div>
+        </div>
+        <div class="search-container">
+            <div class="search-row"><input type="text" id="searchInput" placeholder="フリーワード検索 (全フォルダ横断)..."></div>
+            <div class="filter-row">
+                <div class="filter-group">
+                    <label>公開年:</label>
+                    <div class="multi-select" id="ms-year" onclick="toggleMS('opts-year', event)"><div class="ms-header">すべて</div><div class="ms-options" id="opts-year" onclick="event.stopPropagation()"></div></div>
+                </div>
+                <div class="filter-group">
+                    <label>キーワード:</label>
+                    <div class="multi-select" id="ms-keyword" onclick="toggleMS('opts-keyword', event)"><div class="ms-header">すべて</div><div class="ms-options" id="opts-keyword" onclick="event.stopPropagation()"></div></div>
+                </div>
+                <div class="filter-group">
+                    <label>著者:</label>
+                    <div class="multi-select" id="ms-author" onclick="toggleMS('opts-author', event)"><div class="ms-header">すべて</div><div class="ms-options" id="opts-author" onclick="event.stopPropagation()"></div></div>
+                </div>
+                <div class="filter-group">
+                    <label>ジャーナル:</label>
+                    <div class="multi-select" id="ms-journal" onclick="toggleMS('opts-journal', event)"><div class="ms-header">すべて</div><div class="ms-options" id="opts-journal" onclick="event.stopPropagation()"></div></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="main-wrapper">
+        <div class="content">
+            <div class="content-header">
+                <h2>ドキュメント</h2>
+                <div id="hitCount" style="font-size: 0.85em; color: #7f8c8d;">右上の「🔄 読み込み」ボタンを押してください</div>
+            </div>
+            <div id="explorerContainer"></div>
+        </div>
+    </div>
+
+    <div id="folderModal" class="modal">
+        <div class="modal-content small">
+            <div class="modal-header">
+                <h2>📁 フォルダ管理</h2>
+                <button class="modal-close" id="closeFolderModalBtn">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>新しいフォルダを作成</label>
+                    <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+                        <input type="text" id="newFolderName" placeholder="例: 自動運転">
+                        <button type="button" id="addFolderBtn" style="background: #3498db; color: white; border:none; padding: 0 20px; border-radius:4px; cursor:pointer; font-weight:bold;">作成</button>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>既存のフォルダ (クリックで削除)</label>
+                    <div id="folderManageList" style="min-height: 80px; background: #f9f9f9; padding: 15px; border-radius: 4px; border: 1px solid #eee;"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="regModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>新規登録</h2>
+                <button class="modal-close" id="closeModalBtn">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="ai-setting">
+                    <div class="form-group" style="margin-bottom:0;">
+                        <label>🔑 Gemini APIキー (AI要約用・個人ごと保存)</label>
+                        <input type="password" id="apiKey" placeholder="AI要約を使う場合に入力">
+                    </div>
+                </div>
+
+                <form id="paperForm">
+                    <div class="modal-form-grid">
+                        <div class="form-group full-width" id="formFolderGroup" style="display:none;"><label>格納先フォルダ</label><select id="paperFolder"></select></div>
+                        <div class="form-group full-width"><label>📄 PDFファイル (自動要約)</label>
+                            <div id="dropZone" class="drop-zone">ここにPDFをドロップ<br>またはクリック</div>
+                            <input type="file" id="pdfFileInput" accept="application/pdf" style="display:none;"><div id="pdfStatus"></div>
+                        </div>
+                        
+                        <div class="form-group full-width"><label>タイトル *</label><input type="text" id="title" required></div>
+                        <div class="form-group"><label>PDFの保存パス</label><input type="text" id="pdfPath"></div>
+                        <div class="form-group"><label>出典</label><input type="text" id="journal"></div>
+                        <div class="form-group"><label>著者 (カンマ区切り)</label><input type="text" id="authors"></div>
+                        <div class="form-group"><label>公開年</label><input type="number" id="year"></div>
+                        <div class="form-group"><label>DOIリンク</label><input type="url" id="doi"></div>
+                        <div class="form-group"><label>キーワード (改行区切り)</label><textarea id="keywords" placeholder="例:&#10;機械学習"></textarea></div>
+                        
+                        <hr class="full-width" style="width: 100%; border:0; border-top: 1px dashed #ccc; margin: 5px 0;">
+                        
+                        <div class="form-group full-width"><label>概要</label><textarea id="summary" style="height:120px;"></textarea></div>
+                        
+                        <div class="form-group full-width">
+                            <label>📎 概要に図を追加 (自動圧縮)</label>
+                            <div class="figure-upload-zone" id="modalFigZone" tabindex="0">ここに画像をペースト (Ctrl+V) <br>または クリックして選択</div>
+                            <input type="file" id="modalFigInput" accept="image/*" style="display:none;">
+                            <div id="modalFigList" class="figure-list"></div>
+                        </div>
+
+                        <div class="form-group full-width"><label>新規性</label><textarea id="novelty"></textarea></div>
+                        
+                        <div class="form-group full-width">
+                            <label>➕ カスタム項目 (複数追加可能)</label>
+                            <div id="modalCustomFields"></div>
+                            <button type="button" class="btn-small" style="width:100%; padding:6px; margin-top:5px;" onclick="addModalCustomField()">+ 項目を追加する</button>
+                        </div>
+                    </div>
+
+                    <button type="submit" class="submit-btn" style="margin-top: 20px;">保存する</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function escapeHTML(str) { return (str == null || str === '') ? '' : String(str).replace(/[&<>'"]/g, t => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[t])); }
+
+        let globalPapers = [];
+        let globalFolders = [];
+        let modalFigures = [];
+        window.editFiguresMap = {};
+        let currentSelectedFolder = 'all';
+
+        // 🌟 究極の通信処理：PCから開いてもURLから開いても自動判別して完璧に動きます
+        function fetchFromCloud(method, bodyData) {
+            const indicator = document.getElementById('cloudStatus');
+            if(indicator) indicator.classList.add('syncing');
+            
+            return new Promise((resolve, reject) => {
+                // ① GASのURLから開かれた場合 (専用高速ルート)
+                if (typeof google !== 'undefined' && google.script && google.script.run) {
+                    if (method === 'GET') {
+                        google.script.run
+                            .withSuccessHandler(data => { if(indicator) indicator.classList.remove('syncing'); resolve(data); })
+                            .withFailureHandler(err => { if(indicator) indicator.classList.remove('syncing'); reject(err); })
+                            .getCloudData();
+                    } else {
+                        google.script.run
+                            .withSuccessHandler(data => { if(indicator) indicator.classList.remove('syncing'); resolve(data); })
+                            .withFailureHandler(err => { if(indicator) indicator.classList.remove('syncing'); reject(err); })
+                            .saveCloudData(bodyData);
+                    }
+                } 
+                // ② PCの article.html を直接ダブルクリックして開かれた場合 (fetch通信)
+                else {
+                    const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzQOrSqCTEUyRbfYzL00K47z5SZUGnTm1XtIr-WUFb-G_ItzZPFmuZkLmy_LuV1sX4S/exec";
+                    let url = GAS_WEB_APP_URL;
+                    const options = {};
+                    if (method === 'POST') {
+                        options.method = 'POST';
+                        options.body = JSON.stringify(bodyData);
+                        options.headers = { 'Content-Type': 'text/plain;charset=utf-8' }; // ブロック回避
+                    } else {
+                        options.method = 'GET';
+                        url += "?action=getData";
+                    }
+                    
+                    fetch(url, options)
+                        .then(res => res.json())
+                        .then(json => {
+                            if(indicator) indicator.classList.remove('syncing');
+                            if(json.status === "error") reject(new Error(json.message));
+                            else resolve(json);
+                        })
+                        .catch(err => {
+                            if(indicator) indicator.classList.remove('syncing');
+                            reject(err);
+                        });
+                }
+            }).catch(err => {
+                alert("⚠️ クラウドとの通信に失敗しました:\\n" + (err.message || err));
+                return null;
+            });
+        }
+
+        async function loadCloudData() {
+            document.getElementById('hitCount').textContent = "クラウドと同期中...";
+            const data = await fetchFromCloud('GET');
+            if(data) {
+                globalPapers = data.papers || [];
+                globalFolders = data.folders || [];
+                updateFolderUI();
+                updateFilterOptions();
+                executeSearch();
+            }
+        }
+
+        function compressImage(file, callback) {
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const img = new Image();
+                img.onload = function() {
+                    const canvas = document.createElement('canvas');
+                    let width = img.width, height = img.height;
+                    const MAX_SIZE = 600; 
+                    if (width > height && width > MAX_SIZE) { height *= MAX_SIZE / width; width = MAX_SIZE; }
+                    else if (height > MAX_SIZE) { width *= MAX_SIZE / height; height = MAX_SIZE; }
+                    canvas.width = width; canvas.height = height;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, width, height);
+                    callback(canvas.toDataURL('image/jpeg', 0.6));
+                };
+                img.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function handlePasteEvent(e, callback) {
+            const items = (e.clipboardData || e.originalEvent.clipboardData).items;
+            for (let index in items) {
+                const item = items[index];
+                if (item.kind === 'file' && item.type.startsWith('image/')) {
+                    e.preventDefault(); compressImage(item.getAsFile(), callback); return;
+                }
+            }
+        }
+
+        window.addModalCustomField = function() {
+            const container = document.getElementById('modalCustomFields');
+            const div = document.createElement('div');
+            div.className = 'custom-field-item';
+            div.innerHTML = `
+                <div class="cf-header">
+                    <input type="text" placeholder="項目名" class="cf-key">
+                    <button type="button" class="btn-small delete-btn" onclick="this.parentElement.parentElement.remove()">削除</button>
+                </div>
+                <textarea placeholder="内容を入力" class="cf-val"></textarea>
+            `;
+            container.appendChild(div);
+        };
+
+        window.addEditCustomField = function(paperId) {
+            const container = document.getElementById(`edit-cf-container-${paperId}`);
+            const div = document.createElement('div');
+            div.className = 'custom-field-item';
+            div.innerHTML = `
+                <div class="cf-header">
+                    <input type="text" placeholder="項目名" class="cf-key">
+                    <button type="button" class="btn-small delete-btn" onclick="this.parentElement.parentElement.remove()">削除</button>
+                </div>
+                <textarea placeholder="内容を入力" class="cf-val"></textarea>
+            `;
+            container.appendChild(div);
+        };
+
+        document.addEventListener('DOMContentLoaded', () => {
+            
+            document.getElementById('loadDataBtn').addEventListener('click', loadCloudData);
+
+            const regModal = document.getElementById('regModal');
+            const folderModal = document.getElementById('folderModal');
+            
+            document.getElementById('openModalBtn').addEventListener('click', () => regModal.classList.add('show'));
+            document.getElementById('closeModalBtn').addEventListener('click', () => regModal.classList.remove('show'));
+            document.getElementById('openFolderModalBtn').addEventListener('click', () => folderModal.classList.add('show'));
+            document.getElementById('closeFolderModalBtn').addEventListener('click', () => folderModal.classList.remove('show'));
+
+            window.addEventListener('click', (e) => { 
+                if (e.target === regModal) regModal.classList.remove('show'); 
+                if (e.target === folderModal) folderModal.classList.remove('show'); 
+            });
+
+            const mFigZone = document.getElementById('modalFigZone');
+            const mFigInput = document.getElementById('modalFigInput');
+            const mFigList = document.getElementById('modalFigList');
+
+            mFigZone.addEventListener('click', () => mFigInput.click());
+            mFigZone.addEventListener('paste', (e) => handlePasteEvent(e, addModalFigure));
+            mFigInput.addEventListener('change', (e) => {
+                if(e.target.files.length > 0) compressImage(e.target.files[0], addModalFigure); e.target.value = '';
+            });
+
+            function addModalFigure(base64Image) { modalFigures.push({ id: Date.now(), src: base64Image, caption: '' }); renderModalFigures(); }
+            window.updateModalFigCaption = function(id, val) { const fig = modalFigures.find(f => f.id === id); if(fig) fig.caption = val; };
+            window.removeModalFig = function(id) { modalFigures = modalFigures.filter(f => f.id !== id); renderModalFigures(); };
+
+            function renderModalFigures() {
+                mFigList.innerHTML = modalFigures.map(fig => `
+                    <div class="figure-item">
+                        <img src="${fig.src}">
+                        <div class="fig-inputs">
+                            <input type="text" placeholder="図の説明文" value="${escapeHTML(fig.caption)}" onchange="updateModalFigCaption(${fig.id}, this.value)">
+                            <button type="button" class="btn-small delete-btn" onclick="removeModalFig(${fig.id})">削除</button>
+                        </div>
+                    </div>
+                `).join('');
+            }
+
+            window.toggleMS = function(optionsId, event) {
+                event.stopPropagation(); const opts = document.getElementById(optionsId);
+                const isShowing = opts.classList.contains('show');
+                document.querySelectorAll('.ms-options').forEach(el => el.classList.remove('show'));
+                if (!isShowing) opts.classList.add('show');
+            };
+            document.addEventListener('click', (e) => {
+                if (!e.target.closest('.multi-select')) document.querySelectorAll('.ms-options').forEach(el => el.classList.remove('show'));
+            });
+
+            const apiKeyInput = document.getElementById('apiKey');
+            apiKeyInput.value = localStorage.getItem('geminiApiKey') || '';
+            apiKeyInput.addEventListener('change', () => localStorage.setItem('geminiApiKey', apiKeyInput.value.trim()));
+
+            const addFolderBtn = document.getElementById('addFolderBtn');
+            const newFolderNameInput = document.getElementById('newFolderName');
+            const folderManageList = document.getElementById('folderManageList');
+            const formFolderGroup = document.getElementById('formFolderGroup');
+            const paperFolderSelect = document.getElementById('paperFolder');
+            const explorerContainer = document.getElementById('explorerContainer');
+
+            addFolderBtn.addEventListener('click', async () => {
+                const name = newFolderNameInput.value.trim(); if (!name) return;
+                if (globalFolders.includes(name)) return alert('同名のフォルダがあります。');
+                if (['all', 'unclassified', 'すべて', '未分類'].includes(name.toLowerCase())) return alert('予約語です。');
+                
+                globalFolders.push(name);
+                const res = await fetchFromCloud('POST', { action: "syncAll", folders: globalFolders, papers: globalPapers });
+                if(res) {
+                    newFolderNameInput.value = ''; updateFolderUI(); executeSearch();
+                }
+            });
+
+            function updateFolderUI() {
+                folderManageList.innerHTML = '';
+                if (globalFolders.length === 0) { 
+                    formFolderGroup.style.display = 'none'; 
+                    folderManageList.innerHTML = '<span style="color:#999; font-size:0.9em;">現在フォルダはありません。</span>';
+                    if(currentSelectedFolder !== 'all') currentSelectedFolder = 'all'; 
+                    return; 
+                }
+                formFolderGroup.style.display = 'block'; const currentSelectVal = paperFolderSelect.value;
+                paperFolderSelect.innerHTML = '<option value="">未分類 (ルート)</option>';
+                globalFolders.forEach(f => {
+                    const opt = document.createElement('option'); opt.value = opt.textContent = f; paperFolderSelect.appendChild(opt);
+                    const badge = document.createElement('span'); badge.className = 'folder-badge';
+                    badge.innerHTML = `<span class="icon">📁</span> ${escapeHTML(f)} <span class="folder-badge-del" onclick="deleteFolder('${escapeHTML(f)}')">&times;</span>`;
+                    folderManageList.appendChild(badge);
+                });
+                if ([...globalFolders, ''].includes(currentSelectVal)) paperFolderSelect.value = currentSelectVal;
+            }
+
+            window.deleteFolder = async function(folderName) {
+                if (confirm(`フォルダ「${folderName}」を削除しますか？\n中の論文はルート直下に移動します。`)) {
+                    globalFolders = globalFolders.filter(f => f !== folderName);
+                    globalPapers = globalPapers.map(p => { if (p.folder === folderName) p.folder = ''; return p; });
+                    
+                    const res = await fetchFromCloud('POST', { action: "syncAll", folders: globalFolders, papers: globalPapers });
+                    if(res) {
+                        if (currentSelectedFolder === folderName) currentSelectedFolder = 'all';
+                        updateFolderUI(); executeSearch();
+                    }
+                }
+            };
+            
+            window.navigateTo = function(folderName) {
+                currentSelectedFolder = folderName;
+                if(paperFolderSelect.options.length > 0) paperFolderSelect.value = (folderName === 'all') ? '' : folderName;
+                executeSearch();
+            };
+
+            function renderExplorer(papersToRender, isSearching) {
+                explorerContainer.innerHTML = '';
+                const addressBar = document.createElement('div'); addressBar.className = 'address-bar';
+                let pathHtml = `<span onclick="navigateTo('all')"><span class="icon">💻</span> PC</span> <span class="separator">&gt;</span> <span onclick="navigateTo('all')">すべての論文</span>`;
+                if (isSearching) pathHtml = `<span class="icon">🔍</span> 検索結果... (全横断)`;
+                else if (currentSelectedFolder !== 'all') pathHtml += ` <span class="separator">&gt;</span> <span><span class="icon">📁</span> ${escapeHTML(currentSelectedFolder)}</span>`;
+                addressBar.innerHTML = pathHtml; explorerContainer.appendChild(addressBar);
+
+                const table = document.createElement('table'); table.className = 'explorer-table';
+                table.innerHTML = `<thead><tr><th style="width:40%;">名前</th><th style="width:15%;">作成年</th><th style="width:20%;">著者</th><th style="width:15%;">ジャーナル</th><th style="width:10%; text-align:center;">操作</th></tr></thead><tbody></tbody>`;
+                const tbody = table.querySelector('tbody'); let rowCount = 0;
+
+                if (!isSearching && currentSelectedFolder === 'all' && globalFolders.length > 0) {
+                    globalFolders.forEach(folder => {
+                        const tr = document.createElement('tr'); tr.className = 'explorer-row folder-row'; tr.onclick = () => navigateTo(folder);
+                        tr.innerHTML = `<td><span class="icon">📁</span>${escapeHTML(folder)}</td><td></td><td></td><td>ファイル フォルダ</td><td style="text-align:center;"><button class="btn-small delete-btn" onclick="event.stopPropagation(); deleteFolder('${escapeHTML(folder)}')">削除</button></td>`;
+                        tbody.appendChild(tr); rowCount++;
+                    });
+                }
+                if (!isSearching && currentSelectedFolder !== 'all') {
+                    const tr = document.createElement('tr'); tr.className = 'explorer-row folder-row'; tr.onclick = () => navigateTo('all');
+                    tr.innerHTML = `<td><span class="icon">⤴️</span> .. (上の階層へ)</td><td colspan="4"></td>`; tbody.appendChild(tr);
+                }
+
+                if (papersToRender.length === 0 && rowCount === 0) {
+                    tbody.innerHTML += `<tr><td colspan="5" style="text-align:center; padding:20px; color:#999;">空です。</td></tr>`;
+                } else {
+                    papersToRender.slice().reverse().forEach(paper => {
+                        const tr = document.createElement('tr'); tr.className = 'explorer-row file-row';
+                        let locHint = (isSearching && globalFolders.length > 0) ? `<span style="color:#aaa; font-size:0.8em; margin-left:8px;">— in ${paper.folder ? escapeHTML(paper.folder) : '未分類'}</span>` : '';
+                        
+                        let keysHtml = (paper.keywords != null) ? String(paper.keywords).split(',').filter(k=>k.trim()).map(k => `<span class="keyword-tag">${escapeHTML(k.trim())}</span>`).join('') : '';
+                        let folOpts = `<option value="">未分類 (ルート)</option>`;
+                        globalFolders.forEach(f => { folOpts += `<option value="${escapeHTML(f)}" ${paper.folder === f ? 'selected' : ''}>${escapeHTML(f)}</option>`; });
+
+                        let viewFigsHtml = '';
+                        if(paper.figures && paper.figures.length > 0) {
+                            viewFigsHtml = `<div class="view-figures">` + paper.figures.map(f => `
+                                <div class="view-figure-card"><a href="${f.src}" target="_blank"><img src="${f.src}"></a><p>${escapeHTML(f.caption)}</p></div>
+                            `).join('') + `</div>`;
+                        }
+                        let viewCustomFieldsHtml = '';
+                        if (paper.customFields && paper.customFields.length > 0) {
+                            viewCustomFieldsHtml = paper.customFields.map(cf => `
+                                <p><strong>📌 ${escapeHTML(cf.key)}:</strong><br>${escapeHTML(cf.val).replace(/\n/g, '<br>')}</p>
+                            `).join('');
+                        }
+
+                        let editCustomFieldsHtml = '';
+                        if (paper.customFields && paper.customFields.length > 0) {
+                            editCustomFieldsHtml = paper.customFields.map(cf => {
+                                const cid = Math.random().toString(36).substring(2);
+                                return `
+                                    <div class="custom-field-item" id="edit-cf-${cid}">
+                                        <div class="cf-header">
+                                            <input type="text" placeholder="項目名" class="cf-key" value="${escapeHTML(cf.key).replace(/"/g, '&quot;')}">
+                                            <button type="button" class="btn-small delete-btn" onclick="this.parentElement.parentElement.remove()">削除</button>
+                                        </div>
+                                        <textarea placeholder="内容を入力" class="cf-val">${escapeHTML(cf.val)}</textarea>
+                                    </div>
+                                `;
+                            }).join('');
+                        }
+
+                        tr.innerHTML = `
+                            <td title="${escapeHTML(paper.title)}"><span class="icon">📄</span>${escapeHTML(paper.title)} ${locHint}</td>
+                            <td>${escapeHTML(paper.year)}</td><td title="${escapeHTML(paper.authors)}">${escapeHTML(paper.authors)}</td><td title="${escapeHTML(paper.journal)}">${escapeHTML(paper.journal)}</td>
+                            <td><div class="action-btn-group"><button class="btn-small delete-btn" onclick="event.stopPropagation(); deletePaper(${paper.id})">削除</button></div></td>
+                        `;
+
+                        const detailTr = document.createElement('tr'); detailTr.className = 'detail-row';
+                        detailTr.innerHTML = `
+                            <td colspan="5" style="padding:0; border-bottom: none;">
+                                <div class="detail-content">
+                                    <div id="view-${paper.id}">
+                                        <div class="view-mode-header"><button class="btn-small edit-btn" onclick="toggleEditMode(${paper.id}, true)">✏️ 編集する</button></div>
+                                        <p><strong>DOI:</strong> <a href="${escapeHTML(paper.doi)}" target="_blank">${escapeHTML(paper.doi)}</a> ｜ <strong>キーワード:</strong> ${keysHtml} ｜ <strong>パス:</strong> ${escapeHTML(paper.pdfPath)}</p>
+                                        <hr style="border:0; border-top:1px dashed #ccc; margin:10px 0;">
+                                        <p><strong>📝 概要:</strong><br>${escapeHTML(paper.summary).replace(/\n/g, '<br>')}</p>
+                                        ${viewFigsHtml}
+                                        <p><strong>✨ 新規性:</strong><br>${escapeHTML(paper.novelty).replace(/\n/g, '<br>')}</p>
+                                        ${viewCustomFieldsHtml}
+                                    </div>
+                                    <div id="edit-${paper.id}" class="inline-edit-form">
+                                        <div class="edit-grid">
+                                            <div class="full-width"><label>タイトル</label><input type="text" id="edit-title-${paper.id}" value="${escapeHTML(paper.title).replace(/"/g, '&quot;')}"></div>
+                                            <div><label>著者</label><input type="text" id="edit-authors-${paper.id}" value="${escapeHTML(paper.authors).replace(/"/g, '&quot;')}"></div>
+                                            <div><label>出典</label><input type="text" id="edit-journal-${paper.id}" value="${escapeHTML(paper.journal).replace(/"/g, '&quot;')}"></div>
+                                            <div><label>公開年</label><input type="number" id="edit-year-${paper.id}" value="${escapeHTML(paper.year)}"></div>
+                                            <div><label>格納先フォルダ</label><select id="edit-folder-${paper.id}">${folOpts}</select></div>
+                                            <div><label>DOI</label><input type="text" id="edit-doi-${paper.id}" value="${escapeHTML(paper.doi).replace(/"/g, '&quot;')}"></div>
+                                            <div><label>PDFパス</label><input type="text" id="edit-path-${paper.id}" value="${escapeHTML(paper.pdfPath).replace(/"/g, '&quot;')}"></div>
+                                            <div class="full-width"><label>キーワード (改行)</label><textarea id="edit-keywords-${paper.id}">${escapeHTML(paper.keywords).replace(/,/g, '\n')}</textarea></div>
+                                            <div class="full-width"><label>概要</label><textarea id="edit-summary-${paper.id}">${escapeHTML(paper.summary)}</textarea></div>
+                                            
+                                            <div class="full-width">
+                                                <label>📎 図の追加・編集</label>
+                                                <div class="figure-upload-zone" tabindex="0" onclick="document.getElementById('edit-fig-input-${paper.id}').click()" onpaste="handleEditPaste(event, ${paper.id})">ここに画像をペースト (Ctrl+V) または クリックして選択</div>
+                                                <input type="file" id="edit-fig-input-${paper.id}" accept="image/*" style="display:none;" onchange="handleEditFileSelect(event, ${paper.id})">
+                                                <div id="edit-fig-list-${paper.id}" class="figure-list"></div>
+                                            </div>
+
+                                            <div class="full-width"><label>新規性</label><textarea id="edit-novelty-${paper.id}">${escapeHTML(paper.novelty)}</textarea></div>
+                                            
+                                            <div class="full-width">
+                                                <label>➕ カスタム項目</label>
+                                                <div id="edit-cf-container-${paper.id}">${editCustomFieldsHtml}</div>
+                                                <button type="button" class="btn-small" style="width:100%; padding:6px; margin-top:5px;" onclick="addEditCustomField(${paper.id})">+ 項目を追加する</button>
+                                            </div>
+
+                                        </div>
+                                        <div class="edit-actions">
+                                            <button class="btn-cancel" onclick="toggleEditMode(${paper.id}, false)">キャンセル</button>
+                                            <button class="btn-update" onclick="savePaperEdit(${paper.id})">更新を保存</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </td>
+                        `;
+                        tr.onclick = (e) => { if(!e.target.closest('button')) detailTr.classList.toggle('open'); };
+                        tbody.appendChild(tr); tbody.appendChild(detailTr); rowCount++;
+                    });
+                }
+                explorerContainer.appendChild(table); document.getElementById('hitCount').textContent = `${rowCount} 個の項目`;
+            }
+
+            window.toggleEditMode = function(id, isEdit) {
+                document.getElementById(`view-${id}`).style.display = isEdit ? 'none' : 'block';
+                document.getElementById(`edit-${id}`).style.display = isEdit ? 'block' : 'none';
+                if(isEdit) {
+                    const p = globalPapers.find(x => x.id === id);
+                    window.editFiguresMap[id] = p && p.figures ? JSON.parse(JSON.stringify(p.figures)) : [];
+                    renderEditFigures(id);
+                }
+            };
+            window.handleEditPaste = function(e, paperId) { handlePasteEvent(e, (base64) => { window.editFiguresMap[paperId].push({id: Date.now(), src: base64, caption: ''}); renderEditFigures(paperId); }); };
+            window.handleEditFileSelect = function(e, paperId) { if(e.target.files.length > 0) compressImage(e.target.files[0], (base64) => { window.editFiguresMap[paperId].push({id: Date.now(), src: base64, caption: ''}); renderEditFigures(paperId); }); e.target.value = ''; };
+            window.updateEditFigCaption = function(paperId, figId, val) { const fig = window.editFiguresMap[paperId].find(f => f.id === figId); if(fig) fig.caption = val; };
+            window.removeEditFig = function(paperId, figId) { window.editFiguresMap[paperId] = window.editFiguresMap[paperId].filter(f => f.id !== figId); renderEditFigures(paperId); };
+            window.renderEditFigures = function(paperId) {
+                const list = document.getElementById(`edit-fig-list-${paperId}`); if(!list) return;
+                list.innerHTML = window.editFiguresMap[paperId].map(fig => `
+                    <div class="figure-item"><img src="${fig.src}"><div class="fig-inputs">
+                    <input type="text" placeholder="説明文" value="${escapeHTML(fig.caption)}" onchange="updateEditFigCaption(${paperId}, ${fig.id}, this.value)">
+                    <button type="button" class="btn-small delete-btn" onclick="removeEditFig(${paperId}, ${fig.id})">削除</button></div></div>
+                `).join('');
+            };
+
+            window.savePaperEdit = async function(id) {
+                const updatedCustomFields = [];
+                document.querySelectorAll(`#edit-cf-container-${id} .custom-field-item`).forEach(el => {
+                    const key = el.querySelector('.cf-key').value.trim();
+                    const val = el.querySelector('.cf-val').value;
+                    if (key || val) updatedCustomFields.push({ key, val });
+                });
+
+                const rawKeys = document.getElementById(`edit-keywords-${id}`).value;
+                const fmtKeys = rawKeys.split(/[\n,]+/).map(k=>k.trim()).filter(k=>k!=='').join(',');
+                
+                const updatedPaper = {
+                    id: id,
+                    title: document.getElementById(`edit-title-${id}`).value, authors: document.getElementById(`edit-authors-${id}`).value,
+                    journal: document.getElementById(`edit-journal-${id}`).value, year: document.getElementById(`edit-year-${id}`).value,
+                    folder: document.getElementById(`edit-folder-${id}`).value, doi: document.getElementById(`edit-doi-${id}`).value,
+                    pdfPath: document.getElementById(`edit-path-${id}`).value, keywords: fmtKeys,
+                    summary: document.getElementById(`edit-summary-${id}`).value,
+                    novelty: document.getElementById(`edit-novelty-${id}`).value,
+                    figures: window.editFiguresMap[id],
+                    customFields: updatedCustomFields
+                };
+
+                const res = await fetchFromCloud('POST', { action: "savePaper", paper: updatedPaper });
+                if(res) {
+                    globalPapers = res.data.papers;
+                    updateFilterOptions(); executeSearch();
+                }
+            };
+
+            window.deletePaper = async function(id) {
+                if(confirm('論文を削除しますか？')) {
+                    const res = await fetchFromCloud('POST', { action: "deletePaper", id: id });
+                    if(res) {
+                        globalPapers = res.data.papers;
+                        updateFilterOptions(); executeSearch();
+                    }
+                }
+            };
+
+            const searchInput = document.getElementById('searchInput'); searchInput.addEventListener('input', executeSearch);
+            function getCheckedVals(id) { return Array.from(document.querySelectorAll(`#${id} input:checked`)).map(cb => cb.value); }
+
+            function executeSearch() {
+                const query = searchInput.value.toLowerCase().trim();
+                const selY = getCheckedVals('opts-year'), selK = getCheckedVals('opts-keyword'), selA = getCheckedVals('opts-author'), selJ = getCheckedVals('opts-journal');
+                const isSearching = (query !== '' || selY.length > 0 || selK.length > 0 || selA.length > 0 || selJ.length > 0);
+                
+                const filtered = globalPapers.filter(p => {
+                    if (!isSearching && globalFolders.length > 0) { if (currentSelectedFolder === 'all') { if (p.folder) return false; } else { if (p.folder !== currentSelectedFolder) return false; } }
+                    if (query && !Object.values(p).some(v => String(v || '').toLowerCase().includes(query))) {
+                        const cfMatch = (p.customFields || []).some(cf => String(cf.key || '').toLowerCase().includes(query) || String(cf.val || '').toLowerCase().includes(query));
+                        if(!cfMatch) return false;
+                    }
+                    if (selY.length > 0 && !selY.includes(String(p.year || '').trim())) return false;
+                    if (selJ.length > 0 && !selJ.includes(String(p.journal || '').trim())) return false;
+                    if (selK.length > 0) { const pk = String(p.keywords || '').split(',').map(k=>k.trim()); if (!selK.some(s => pk.includes(s))) return false; }
+                    if (selA.length > 0) { const pa = String(p.authors || '').split(',').map(a=>a.trim()); if (!selA.some(s => pa.includes(s))) return false; }
+                    return true;
+                });
+                renderExplorer(filtered, isSearching);
+            }
+
+            function updateFilterOptions() {
+                const y=new Set(), k=new Set(), a=new Set(), j=new Set();
+                globalPapers.forEach(p => {
+                    if(p.year != null && String(p.year).trim() !== '') y.add(String(p.year).trim());
+                    if(p.journal != null && String(p.journal).trim() !== '') j.add(String(p.journal).trim());
+                    if(p.keywords != null) String(p.keywords).split(',').forEach(x=>{if(x.trim()) k.add(x.trim())});
+                    if(p.authors != null) String(p.authors).split(',').forEach(x=>{if(x.trim()) a.add(x.trim())});
+                });
+                buildMS('ms-year', 'opts-year', Array.from(y).sort((A,B)=>B-A)); buildMS('ms-keyword', 'opts-keyword', Array.from(k).sort());
+                buildMS('ms-author', 'opts-author', Array.from(a).sort()); buildMS('ms-journal', 'opts-journal', Array.from(j).sort());
+            }
+
+            function buildMS(wId, oId, items) {
+                const div = document.getElementById(oId), cur = getCheckedVals(oId); div.innerHTML = '';
+                items.forEach(item => {
+                    const lbl = document.createElement('label'); lbl.onclick = e => e.stopPropagation();
+                    const chk = document.createElement('input'); chk.type = 'checkbox'; chk.value = item;
+                    if (cur.includes(item)) chk.checked = true;
+                    chk.addEventListener('change', () => { updateMSH(wId, oId); executeSearch(); });
+                    lbl.appendChild(chk); lbl.appendChild(document.createTextNode(' ' + item)); div.appendChild(lbl);
+                });
+                updateMSH(wId, oId);
+            }
+            function updateMSH(wId, oId) {
+                const cnt = getCheckedVals(oId).length, hdr = document.querySelector(`#${wId} .ms-header`);
+                hdr.textContent = cnt === 0 ? 'すべて' : (cnt === 1 ? getCheckedVals(oId)[0] : `${cnt}項目選択`);
+            }
+
+            document.getElementById('paperForm').addEventListener('submit', async function(e) {
+                e.preventDefault();
+                const rKeys = document.getElementById('keywords').value, fKeys = rKeys.split(/[\n,]+/).map(k=>k.trim()).filter(k=>k!=='').join(',');
+                
+                const customFields = [];
+                document.querySelectorAll('#modalCustomFields .custom-field-item').forEach(el => {
+                    const key = el.querySelector('.cf-key').value.trim();
+                    const val = el.querySelector('.cf-val').value;
+                    if (key || val) customFields.push({ key, val });
+                });
+
+                const newPaper = {
+                    id: Date.now(), title: document.getElementById('title').value, journal: document.getElementById('journal').value,
+                    authors: document.getElementById('authors').value, year: document.getElementById('year').value,
+                    doi: document.getElementById('doi').value, keywords: fKeys, pdfPath: document.getElementById('pdfPath').value,
+                    summary: document.getElementById('summary').value, novelty: document.getElementById('novelty').value,
+                    folder: globalFolders.length > 0 ? paperFolderSelect.value : '',
+                    figures: modalFigures, customFields: customFields
+                };
+                
+                const res = await fetchFromCloud('POST', { action: "savePaper", paper: newPaper });
+                if(res) {
+                    globalPapers = res.data.papers;
+                    this.reset();
+                    modalFigures = []; renderModalFigures(); document.getElementById('modalCustomFields').innerHTML = '';
+                    document.getElementById('pdfStatus').textContent = ''; paperFolderSelect.value = newPaper.folder;
+                    regModal.classList.remove('show');
+                    updateFilterOptions(); executeSearch();
+                }
+            });
+
+            const dropZone = document.getElementById('dropZone'), fileInput = document.getElementById('pdfFileInput');
+            dropZone.addEventListener('click', () => fileInput.click()); dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
+            dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+            dropZone.addEventListener('drop', e => { e.preventDefault(); dropZone.classList.remove('dragover'); if(e.dataTransfer.files.length) pPDF(e.dataTransfer.files[0]); });
+            fileInput.addEventListener('change', e => { if(e.target.files.length) pPDF(e.target.files[0]); });
+            async function pPDF(file) {
+                if(file.type !== "application/pdf") return alert("PDFを選択してください");
+                document.getElementById('pdfPath').value = file.name; document.getElementById('pdfStatus').textContent = "⏳ 読込中...";
+                try {
+                    const arrayBuffer = await file.arrayBuffer(), pdf = await pdfjsLib.getDocument({data: arrayBuffer}).promise;
+                    let text = ""; for(let i=1; i<=Math.min(pdf.numPages, 10); i++) { const page = await pdf.getPage(i); const content = await page.getTextContent(); text += content.items.map(t => t.str).join(" ") + "\n"; }
+                    if(!apiKeyInput.value.trim()) { document.getElementById('pdfStatus').textContent = "✅ 完了"; return; }
+                    summarizeWithGemini(text);
+                } catch (e) { document.getElementById('pdfStatus').textContent = "❌ 失敗"; }
+            }
+            async function summarizeWithGemini(t) {
+                document.getElementById('pdfStatus').textContent = "🤖 AI要約中...";
+                try {
+                    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKeyInput.value.trim()}`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({contents:[{parts:[{text:`以下の論文を読み取り、500字以内で日本語で概要をまとめてください。\n\n${t.substring(0,15000)}`}]}]}) });
+                    const data = await res.json(); if(data.error) throw new Error(data.error.message);
+                    document.getElementById('summary').value = data.candidates[0].content.parts[0].text; document.getElementById('pdfStatus').textContent = "✨ 完了";
+                } catch(e) { document.getElementById('pdfStatus').textContent = "❌ " + e.message; }
+            }
+        });
+    </script>
+</body>
+</html>
