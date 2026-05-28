@@ -264,58 +264,60 @@
         window.editFiguresMap = {};
         let currentSelectedFolder = 'all';
 
-        // 🌟 究極の通信処理：PCから開いてもURLから開いても自動判別して完璧に動きます
+       // 🌟 通信処理：GASを完全廃止し、ブラウザにすべて保存するローカルルート
         function fetchFromCloud(method, bodyData) {
             const indicator = document.getElementById('cloudStatus');
             if(indicator) indicator.classList.add('syncing');
-            
+
             return new Promise((resolve, reject) => {
-                // ① GASのURLから開かれた場合 (専用高速ルート)
-                if (typeof google !== 'undefined' && google.script && google.script.run) {
-                    if (method === 'GET') {
-                        google.script.run
-                            .withSuccessHandler(data => { if(indicator) indicator.classList.remove('syncing'); resolve(data); })
-                            .withFailureHandler(err => { if(indicator) indicator.classList.remove('syncing'); reject(err); })
-                            .getCloudData();
-                    } else {
-                        google.script.run
-                            .withSuccessHandler(data => { if(indicator) indicator.classList.remove('syncing'); resolve(data); })
-                            .withFailureHandler(err => { if(indicator) indicator.classList.remove('syncing'); reject(err); })
-                            .saveCloudData(bodyData);
-                    }
-                } 
-                // ② PCの article.html を直接ダブルクリックして開かれた場合 (fetch通信)
-                else {
-                    const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzQOrSqCTEUyRbfYzL00K47z5SZUGnTm1XtIr-WUFb-G_ItzZPFmuZkLmy_LuV1sX4S/exec";
-                    let url = GAS_WEB_APP_URL;
-                    const options = {};
-                    if (method === 'POST') {
-                        options.method = 'POST';
-                        options.body = JSON.stringify(bodyData);
-                        options.headers = { 'Content-Type': 'text/plain;charset=utf-8' }; // ブロック回避
-                    } else {
-                        options.method = 'GET';
-                        url += "?action=getData";
-                    }
-                    
-                    fetch(url, options)
-                        .then(res => res.json())
-                        .then(json => {
-                            if(indicator) indicator.classList.remove('syncing');
-                            if(json.status === "error") reject(new Error(json.message));
-                            else resolve(json);
-                        })
-                        .catch(err => {
-                            if(indicator) indicator.classList.remove('syncing');
-                            reject(err);
-                        });
+                // ① 現在の保存データを読み込む
+                let currentData = { folders: [], papers: [] };
+                const rawData = localStorage.getItem('SRK_APP_DATA');
+                if (rawData) {
+                    try { currentData = JSON.parse(rawData); } catch (e) {}
                 }
-            }).catch(err => {
-                alert("⚠️ クラウドとの通信に失敗しました:\\n" + (err.message || err));
-                return null;
+
+                // 読み込み（GET）の場合はここで終了
+                if (method === 'GET') {
+                    if (indicator) indicator.classList.remove('syncing');
+                    resolve(currentData);
+                    return;
+                }
+
+                // ② 保存・削除（POST）の内部処理
+                let papers = currentData.papers || [];
+                let folders = currentData.folders || [];
+
+                if (bodyData.action === 'syncAll') {
+                    folders = bodyData.folders || folders;
+                    papers = bodyData.papers || papers;
+                } else if (bodyData.action === 'savePaper') {
+                    const newP = bodyData.paper;
+                    const idx = papers.findIndex(p => p.id === newP.id);
+                    if (idx >= 0) {
+                        papers[idx] = newP; // 上書き更新
+                    } else {
+                        papers.push(newP); // 新規追加
+                    }
+                } else if (bodyData.action === 'deletePaper') {
+                    const delId = bodyData.id;
+                    papers = papers.filter(p => p.id !== delId); // 削除
+                }
+
+                // ③ 更新したデータをブラウザに保存する
+                const newData = { folders: folders, papers: papers };
+                try {
+                    localStorage.setItem('SRK_APP_DATA', JSON.stringify(newData));
+                    if (indicator) indicator.classList.remove('syncing');
+                    resolve({ status: "success", data: newData });
+                } catch (e) {
+                    // ※ブラウザの保存容量(約5MB)を超えた場合のエラー回避
+                    if (indicator) indicator.classList.remove('syncing');
+                    alert("⚠️ ブラウザの保存容量の上限に達しました。不要な画像を減らしてください。");
+                    reject(e);
+                }
             });
         }
-
         async function loadCloudData() {
             document.getElementById('hitCount').textContent = "クラウドと同期中...";
             const data = await fetchFromCloud('GET');
