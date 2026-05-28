@@ -806,6 +806,61 @@ function fetchFromCloud(method, bodyData) {
             const loadBtn = document.getElementById('loadDataBtn');
             if(loadBtn) loadBtn.onclick = safeLoadData;
         });
+        // 🌟 引用（Tex/Word）を出力する小窓を表示する関数
+            window.showCitationWindow = function(paperId) {
+                // 該当の論文データを検索
+                const paper = globalPapers.find(p => p.id === paperId);
+                if(!paper) return;
+
+                // 登録データから各項目を取得（未登録の場合は「不明」とする）
+                const author = paper.authors || paper.author || "著者不明";
+                const title = paper.title || "タイトル不明";
+                const journal = paper.journal || paper.venue || paper.publisher || "出典不明";
+                const year = paper.year || "出版年不明";
+
+                // Word用フォーマット（著者，タイトル，出典，出版年）
+                const wordCite = `${author}, "${title}", ${journal}, ${year}.`;
+                
+                // Tex (BibTeX) 用フォーマット
+                const texCite = `@article{${paperId},\n  title={${title}},\n  author={${author}},\n  journal={${journal}},\n  year={${year}}\n}`;
+
+                // すでに小窓が開いていたら一度消す
+                let existingModal = document.getElementById('citeModal');
+                if(existingModal) existingModal.remove();
+
+                // 小窓のデザインと構造を作成
+                const modal = document.createElement('div');
+                modal.id = 'citeModal';
+                modal.style.cssText = "position:fixed; top:50%; left:50%; transform:translate(-50%, -50%); background:white; padding:20px; box-shadow:0 0 20px rgba(0,0,0,0.5); z-index:9999; border-radius:8px; width:400px; max-width:90%; color:black;";
+
+                modal.innerHTML = `
+                    <h3 style="margin-top:0; font-size:16px; border-bottom:1px solid #ccc; padding-bottom:5px;">引用コード出力</h3>
+                    <div style="margin-bottom:10px;">
+                        <label style="cursor:pointer;"><input type="radio" name="citeType" value="word" checked id="radioWord"> Word形式</label>
+                        <label style="cursor:pointer; margin-left:15px;"><input type="radio" name="citeType" value="tex" id="radioTex"> Tex (BibTeX)形式</label>
+                    </div>
+                    <textarea id="citeText" style="width:95%; height:120px; margin-bottom:10px; padding:8px; font-family:monospace; font-size:12px; resize:vertical;" readonly></textarea>
+                    <div style="text-align:right;">
+                        <button id="citeCopyBtn" style="padding:6px 12px; cursor:pointer; background:#007bff; color:white; border:none; border-radius:4px;">コピー</button>
+                        <button onclick="document.getElementById('citeModal').remove()" style="padding:6px 12px; margin-left:5px; cursor:pointer; background:#6c757d; color:white; border:none; border-radius:4px;">閉じる</button>
+                    </div>
+                `;
+                document.body.appendChild(modal);
+
+                // テキストエリアの要素を取得して初期値（Word）をセット
+                const textarea = document.getElementById('citeText');
+                textarea.value = wordCite;
+
+                // ラジオボタンの切り替えイベント
+                document.getElementById('radioWord').onchange = () => textarea.value = wordCite;
+                document.getElementById('radioTex').onchange = () => textarea.value = texCite;
+
+                // コピーボタンのイベント
+                document.getElementById('citeCopyBtn').onclick = () => {
+                    navigator.clipboard.writeText(textarea.value);
+                    alert('クリップボードにコピーしました！');
+                };
+            };
     </script>
 </body>
 </html>
